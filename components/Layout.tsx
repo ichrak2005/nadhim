@@ -88,14 +88,10 @@ export default function Layout({ children, tab, setTab, user, notifSlot, subNav 
             {/* وسط */}
             <div className="hdr-c"><h1>{L.title}</h1><p>{L.sub}</p></div>
             {/* يسار */}
-          <div className="hdr-l">
+<div className="hdr-l">
   <img src="/Logo.png" alt="ناظم"
     onError={e => {
-      const img = e.target as HTMLImageElement;
-      const tried = img.dataset.tried || '0';
-      if (tried === '0') { img.dataset.tried = '1'; img.src = '/Logo.png'; }
-      else if (tried === '1') { img.dataset.tried = '2'; img.src = '/Logo.png'; }
-      else { img.style.display = 'none'; }
+      (e.target as HTMLImageElement).style.display = 'none';
     }}
   />
 </div>
