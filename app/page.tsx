@@ -87,6 +87,7 @@ export default function LoginPage() {
             <label>اسم المستخدم</label>
             <input className="sinp" style={{ paddingLeft:16 }} type="text"
               placeholder="ادخل اسم المستخدم" value={username}
+              autoComplete="off"
               onChange={e => setUsername(e.target.value)}
               onKeyDown={e => e.key==='Enter' && handleLogin()} />
           </div>
@@ -97,8 +98,21 @@ export default function LoginPage() {
               <input className="sinp" style={{ paddingLeft:42 }}
                 type={showPass ? 'text' : 'password'}
                 placeholder="ادخل كلمة المرور" value={password}
+                autoComplete="new-password"
                 onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => e.key==='Enter' && handleLogin()} />
+              <button
+                type="button"
+                onClick={() => setShowPass(v => !v)}
+                style={{
+                  position:'absolute', left:10, top:'50%', transform:'translateY(-50%)',
+                  background:'none', border:'none', cursor:'pointer', fontSize:16,
+                  color:'#888', padding:4
+                }}
+                aria-label={showPass ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+              >
+                {showPass ? '🙈' : '👁️'}
+              </button>
             </div>
           </div>
 

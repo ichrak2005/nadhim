@@ -93,8 +93,8 @@ export default function Layout({ children, tab, setTab, user, notifSlot, subNav 
     onError={e => {
       const img = e.target as HTMLImageElement;
       const tried = img.dataset.tried || '0';
-      if (tried === '0') { img.dataset.tried = '1'; img.src = '/logo.png'; }
-      else if (tried === '1') { img.dataset.tried = '2'; img.src = '/logo2.png'; }
+      if (tried === '0') { img.dataset.tried = '1'; img.src = '/Logo.png'; }
+      else if (tried === '1') { img.dataset.tried = '2'; img.src = '/Logo.png'; }
       else { img.style.display = 'none'; }
     }}
   />

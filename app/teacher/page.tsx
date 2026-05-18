@@ -182,62 +182,118 @@ function StudentsTab({ teacher, myStud, setMyStud }: { teacher:Teacher; myStud:S
   const [newGuardianInfo, setNewGuardianInfo] = useState<{username:string;password:string;studentName:string}|null>(null);
   const { toast, show } = useToast();
 
+  // ✅ تحميل التقييمات والحفظ من Supabase (يظهر على كل الأجهزة)
   useEffect(() => {
-    const load = () => { setHifzData(gst('hifzRecords',{})); setEvalData(gst('semEvals',{})); };
-    load(); window.addEventListener('storage', load);
-    return () => window.removeEventListener('storage', load);
-  }, []);
+    if (!myStud.length) return;
+    const ids = myStud.map(s => s.id);
+    Promise.all([
+      supabase.from('sem_evals').select('*').in('student_id', ids),
+      supabase.from('hifz_records').select('*').in('student_id', ids),
+    ]).then(([{ data: evData }, { data: hfData }]) => {
+      if (evData) {
+        const map: Record<string, SemEval> = {};
+        evData.forEach((r: any) => {
+          map[`${r.student_id}_${r.sem_id}`] = {
+            surah: r.surah, part: r.part, grade: r.grade,
+            attendance: r.attendance, notes: r.notes, date: r.date,
+            teacherId: r.teacher_id, semId: r.sem_id, teacherName: r.teacher_name,
+          };
+        });
+        setEvalData(map);
+      }
+      if (hfData) {
+        const map: Record<string, HifzRecord[]> = {};
+        hfData.forEach((r: any) => {
+          const key = `${r.student_id}_${r.sem_id ?? sem}`;
+          if (!map[key]) map[key] = [];
+          map[key].push({ id: r.id, surah: r.surah, part: r.part, grade: r.grade, notes: r.notes, date: r.date });
+        });
+        setHifzData(map);
+      }
+    });
+  }, [myStud]);
 
   const getHifz = (sid:number): HifzRecord[] => hifzData[`${sid}_${sem}`]||[];
   const getEval = (sid:number): SemEval|null  => evalData[`${sid}_${sem}`]||null;
 
-  const saveEval = () => {
+  // ✅ حفظ التقييم في Supabase
+  const saveEval = async () => {
     if (!selSt) return;
-    const key = `${selSt.id}_${sem}`;
-    const updated = { ...evalData, [key]:{ ...evalForm, date:new Date().toLocaleDateString('ar'), teacherId:teacher.id, semId:sem, teacherName:teacher.name } };
-    sst('semEvals', updated); setEvalData(updated);
     const now = new Date().toLocaleString('ar');
     const semLbl = SEMESTERS.find(s=>s.id===sem)?.label||'';
-    // إشعار ولي الأمر
+    const evalPayload = {
+      student_id: selSt.id, teacher_id: teacher.id, sem_id: sem,
+      surah: evalForm.surah, part: evalForm.part, grade: evalForm.grade,
+      attendance: evalForm.attendance, notes: evalForm.notes,
+      date: new Date().toLocaleDateString('ar'), teacher_name: teacher.name,
+      is_khatm: evalForm.isKhatm, khatm_year: evalForm.khatmYear,
+      khatm_type: evalForm.khatmType, khatm_note: evalForm.khatmNote,
+    };
+    // upsert: إذا موجود يحدثه وإلا ينشئه
+    await supabase.from('sem_evals').upsert(evalPayload, { onConflict: 'student_id,sem_id' });
+    // تحديث الـ state المحلي
+    const key = `${selSt.id}_${sem}`;
+    setEvalData(prev => ({ ...prev, [key]: { ...evalForm, date: evalPayload.date, teacherId: teacher.id, semId: sem, teacherName: teacher.name } }));
+
+    // إشعار في Supabase (يظهر على كل الأجهزة)
+    await supabase.from('notifications').insert([
+      { teacher_id: teacher.id, student_id: selSt.id, mosque_id: teacher.mosqueId,
+        msg: `📋 تقرير ${semLbl} لـ${selSt.name}: ${evalForm.grade}`, time: now, read: false, type: 'eval', target: 'guardian' },
+      { teacher_id: teacher.id, mosque_id: teacher.mosqueId,
+        msg: `📋 تقييم ${semLbl} — ${teacher.name} / ${teacher.mosqueName}`, time: now, read: false, type: 'eval', target: 'admin' },
+    ]);
+    // localStorage كـ fallback محلي
     const gn = gst<Notif[]>('guardianNotifs', []);
     gn.unshift({ id:Date.now(), studentId:selSt.id, msg:`📋 تقرير ${semLbl} لـ${selSt.name}: ${evalForm.grade}`, time:now, read:false });
     sst('guardianNotifs', gn);
-    // إشعار الأدمن
-    const an = gst<Notif[]>('adminNotifs', []);
-    const alreadyNotified = an.some(n => n.teacherId===teacher.id && n.msg?.includes(`تقييمات ${semLbl}`));
-    if (!alreadyNotified) {
-      an.unshift({ id:Date.now()+1, teacherId:teacher.id, mosqueId:teacher.mosqueId,
-        msg:`📋 تقييم ${semLbl} — ${teacher.name} / ${teacher.mosqueName}`, time:now, read:false });
-      sst('adminNotifs', an);
-    }
-    if (evalForm.isKhatm && selSt) {
-      const khatmRecs = gst<any[]>('khatmRecords', []);
-      const alreadyExists = khatmRecs.some(k => k.studentId===selSt.id && k.year===evalForm.khatmYear);
-      if (!alreadyExists) {
-        khatmRecs.unshift({ id:Date.now(), studentId:selSt.id, studentName:selSt.name, teacherId:teacher.id, teacherName:teacher.name, mosqueId:teacher.mosqueId, mosqueName:teacher.mosqueName, year:evalForm.khatmYear, khatmType:evalForm.khatmType, semId:sem, date:new Date().toLocaleDateString('ar'), notes:evalForm.khatmNote });
-        sst('khatmRecords', khatmRecs);
-        const anK = gst<Notif[]>('adminNotifs', []);
-        anK.unshift({ id:Date.now()+2, teacherId:teacher.id, mosqueId:teacher.mosqueId, msg:`🏆 خاتم جديد: ${selSt.name} — ${evalForm.khatmType} ${evalForm.khatmYear} / ${teacher.mosqueName}`, time:now, read:false });
-        sst('adminNotifs', anK);
-      }
+
+    if (evalForm.isKhatm) {
+      await supabase.from('khatm_records').insert({
+        student_id: selSt.id, student_name: selSt.name,
+        teacher_id: teacher.id, teacher_name: teacher.name,
+        mosque_id: teacher.mosqueId, mosque_name: teacher.mosqueName,
+        year: evalForm.khatmYear, khatm_type: evalForm.khatmType,
+        sem_id: sem, notes: evalForm.khatmNote,
+        date: new Date().toLocaleDateString('ar'),
+      });
+      await supabase.from('notifications').insert({
+        teacher_id: teacher.id, mosque_id: teacher.mosqueId,
+        msg: `🏆 خاتم جديد: ${selSt.name} — ${evalForm.khatmType} ${evalForm.khatmYear}`,
+        time: now, read: false, type: 'khatm', target: 'admin',
+      });
     }
     show('✅ تم إرسال التقييم للأدمن وولي الأمر'); setModal(null);
     setEvalForm({surah:'',part:'',grade:'ممتاز',attendance:'',notes:'',isKhatm:false,khatmYear:new Date().getFullYear().toString(),khatmType:'ختم كامل',khatmNote:''});
   };
 
-  const saveHifz = () => {
+  // ✅ حفظ الحفظ في Supabase
+  const saveHifz = async () => {
     if (!selSt||!hifzForm.surah) { show('⚠️ السورة مطلوبة'); return; }
-    const key = `${selSt.id}_${sem}`;
-    const rec: HifzRecord = { ...hifzForm, id:Date.now(), date:new Date().toLocaleDateString('ar') };
-    const updated = { ...hifzData, [key]:[...(hifzData[key]||[]),rec] };
-    sst('hifzRecords', updated); setHifzData(updated);
     const now = new Date().toLocaleString('ar');
+    const date = new Date().toLocaleDateString('ar');
+    const { data: newRec } = await supabase.from('hifz_records').insert({
+      student_id: selSt.id, teacher_id: teacher.id, sem_id: sem,
+      surah: hifzForm.surah, part: hifzForm.part, grade: hifzForm.grade,
+      notes: hifzForm.notes, date,
+    }).select().single();
+
+    const key = `${selSt.id}_${sem}`;
+    const rec: HifzRecord = { id: newRec?.id ?? Date.now(), ...hifzForm, date };
+    setHifzData(prev => ({ ...prev, [key]: [...(prev[key]||[]), rec] }));
+
+    // إشعار في Supabase
+    await supabase.from('notifications').insert([
+      { teacher_id: teacher.id, student_id: selSt.id,
+        msg: `📖 تم تسجيل حفظ جديد لـ${selSt.name}: ${hifzForm.surah} — ${hifzForm.part} (${hifzForm.grade})`,
+        time: now, read: false, type: 'hifz', target: 'guardian' },
+      { teacher_id: teacher.id, mosque_id: teacher.mosqueId,
+        msg: `📖 المؤطر ${teacher.name} سجّل حفظاً جديداً`, time: now, read: false, type: 'hifz', target: 'admin' },
+    ]);
+    // localStorage كـ fallback
     const gn = gst<Notif[]>('guardianNotifs', []);
-    gn.unshift({ id:Date.now(), studentId:selSt.id, msg:`📖 تم تسجيل حفظ جديد لـ${selSt.name}: ${hifzForm.surah} — ${hifzForm.part} (${hifzForm.grade})`, time:now, read:false });
+    gn.unshift({ id:Date.now(), studentId:selSt.id, msg:`📖 تم تسجيل حفظ لـ${selSt.name}: ${hifzForm.surah}`, time:now, read:false });
     sst('guardianNotifs', gn);
-    const an = gst<Notif[]>('adminNotifs', []);
-    an.unshift({ id:Date.now()+1, teacherId:teacher.id, mosqueId:teacher.mosqueId, msg:`📖 المؤطر ${teacher.name} سجّل حفظاً جديداً`, time:now, read:false });
-    sst('adminNotifs', an);
+
     show('✅ تم تسجيل الحفظ'); setModal(null); setHifzForm({surah:'',part:'',grade:'ممتاز',notes:''});
   };
 const saveNewStudent = async () => {
