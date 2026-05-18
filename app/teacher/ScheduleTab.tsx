@@ -1,13 +1,14 @@
 // ══════════════════════════════════════════════════════════
-//  TAB: جدول التوقيت — نسخة محسّنة (تصميم + حفظ دائم)
+//  TAB: جدول التوقيت — نسخة محسّنة (Supabase بدل localStorage)
 // ══════════════════════════════════════════════════════════
 
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Teacher, Mosque, ScheduleRow, SentSchedule, Notif } from '../../types';
+import { supabase } from '../../lib/supabase';
 
-// ── helpers (نفس اللي في الملف الأصلي) ──
+// ── localStorage helpers (للإشعارات المحلية المؤقتة فقط) ──
 function gst<T>(k: string, d: T): T {
   try { return JSON.parse(localStorage.getItem(k)!) ?? d; } catch { return d; }
 }
@@ -82,10 +83,12 @@ export default function ScheduleTab({
   teacher: Teacher;
   myMosque: Mosque | undefined;
 }) {
-  const [sem, setSem]         = useState<1 | 2 | 3>(1);
-  const [rows, setRows]       = useState<ScheduleRow[]>([]);
-  const [sent, setSent]       = useState(false);
+  const [sem, setSem]           = useState<1 | 2 | 3>(1);
+  const [rows, setRows]         = useState<ScheduleRow[]>([]);
+  const [sent, setSent]         = useState(false);
   const [sentDate, setSentDate] = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [dbId, setDbId]         = useState<number | null>(null); // id السجل في Supabase
 
   // حقول إضافة حصة
   const [newDay,   setNewDay]   = useState('الاحد');
@@ -95,37 +98,59 @@ export default function ScheduleTab({
 
   const { toast, show } = useToast();
 
-  // ── تحميل البيانات كل ما يتغير الفصل أو المؤطر ──
-  // هذا هو الإصلاح الرئيسي: مفتاح مخصص لكل مؤطر+فصل
+  // ── تحميل الجدول من Supabase ──
   useEffect(() => {
-    const load = () => {
-      const saved = gst<SentSchedule | null>(schedKey(teacher.id, sem), null);
-      if (saved) {
-        setRows(saved.rows   ?? []);
-        setSent(saved.sent   ?? false);
-        setSentDate(saved.sentDate ?? '');
+    const load = async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('sent_schedules')
+        .select('*')
+        .eq('teacher_id', teacher.id)
+        .eq('sem', sem)
+        .maybeSingle();
+
+      if (!error && data) {
+        setRows(data.rows ?? []);
+        setSent(data.sent ?? false);
+        setSentDate(data.sent_date ?? '');
+        setDbId(data.id);
       } else {
         setRows([]);
         setSent(false);
         setSentDate('');
+        setDbId(null);
       }
+      setLoading(false);
     };
     load();
-    // نستمع لـ storage حتى لو فُتح في تبويب آخر
-    const handler = (e: StorageEvent) => {
-      if (e.key === schedKey(teacher.id, sem)) load();
+  }, [teacher.id, sem]);
+
+  // ── حفظ في Supabase ──
+  const persistToSupabase = useCallback(async (
+    newRows: ScheduleRow[],
+    isSent = false,
+    date = ''
+  ) => {
+    const payload = {
+      teacher_id: teacher.id,
+      mosque_id: teacher.mosqueId,
+      sem,
+      rows: newRows,
+      sent: isSent,
+      sent_date: date,
     };
-    window.addEventListener('storage', handler);
-    return () => window.removeEventListener('storage', handler);
-  }, [teacher.id, sem]);
 
-  // ── حفظ مسودة فورية كلما تغيرت الصفوف ──
-  const persistDraft = useCallback((newRows: ScheduleRow[], isSent = false, date = '') => {
-    const payload: SentSchedule = { rows: newRows, sent: isSent, sentDate: date, sem };
-    sst(schedKey(teacher.id, sem), payload);
-  }, [teacher.id, sem]);
+    if (dbId) {
+      // تحديث السجل الموجود
+      await supabase.from('sent_schedules').update(payload).eq('id', dbId);
+    } else {
+      // إنشاء سجل جديد
+      const { data } = await supabase.from('sent_schedules').insert(payload).select().single();
+      if (data) setDbId(data.id);
+    }
+  }, [teacher.id, teacher.mosqueId, sem, dbId]);
 
-  const addRow = () => {
+  const addRow = async () => {
     setAddErr('');
     if (!newStart || !newEnd) { setAddErr('⚠️ حدد وقت البداية والنهاية'); return; }
     if (newStart >= newEnd)   { setAddErr('⚠️ وقت البداية يجب أن يكون قبل النهاية'); return; }
@@ -138,58 +163,63 @@ export default function ScheduleTab({
     };
     const updated = [...rows, row];
     setRows(updated);
-    persistDraft(updated, false);
+    await persistToSupabase(updated, false);
     show('✅ تمت إضافة الحصة');
   };
 
-  const removeRow = (id: number) => {
+  const removeRow = async (id: number) => {
     const updated = rows.filter(r => r.id !== id);
     setRows(updated);
-    persistDraft(updated, sent, sentDate);
+    await persistToSupabase(updated, sent, sentDate);
   };
 
-  const saveDraft = () => {
-    persistDraft(rows, false);
+  const saveDraft = async () => {
+    await persistToSupabase(rows, false);
     setSent(false);
     show('💾 تم حفظ المسودة');
   };
 
-  const sendToAll = () => {
+  const sendToAll = async () => {
     if (rows.length === 0) { show('⚠️ أضف حصة واحدة على الأقل'); return; }
     const date = new Date().toLocaleString('ar-DZ', { numberingSystem: 'latn' });
-    persistDraft(rows, true, date);
+
+    // ✅ حفظ في Supabase — يظهر على كل الأجهزة
+    await persistToSupabase(rows, true, date);
     setSent(true);
     setSentDate(date);
 
-    // ── إشعار الأدمن ──
-    const an = gst<Notif[]>('adminNotifs', []);
-    an.unshift({
-      id: Date.now(),
-      teacherId: teacher.id,
-      mosqueId: teacher.mosqueId,
+    // ── إشعار الأدمن في Supabase ──
+    await supabase.from('notifications').insert({
+      teacher_id: teacher.id,
+      mosque_id: teacher.mosqueId,
       msg: `📅 جدول توقيت — ${teacher.name} / ${teacher.mosqueName ?? myMosque?.name}`,
       time: date,
       read: false,
       type: 'schedule',
+      target: 'admin',
     });
-    sst('adminNotifs', an);
 
-    // ── إشعار أولياء الأمور ──
-    const gn = gst<Notif[]>('guardianNotifs', []);
-    gn.unshift({
-      id: Date.now() + 1,
-      teacherId: teacher.id,
+    // ── إشعار أولياء الأمور في Supabase ──
+    await supabase.from('notifications').insert({
+      teacher_id: teacher.id,
       msg: `📅 المؤطر ${teacher.name} أرسل جدول الحصص الجديد`,
       time: date,
       read: false,
+      type: 'schedule',
+      target: 'guardian',
     });
-    sst('guardianNotifs', gn);
+
+    // localStorage كـ fallback محلي فقط (للتوافق مع الكود القديم)
+    const an = gst<Notif[]>('adminNotifs', []);
+    an.unshift({ id: Date.now(), teacherId: teacher.id, mosqueId: teacher.mosqueId,
+      msg: `📅 جدول توقيت — ${teacher.name}`, time: date, read: false, type: 'schedule' });
+    sst('adminNotifs', an);
 
     show('✅ تم الإرسال للأدمن وأولياء الأمور');
   };
 
-  const resetSchedule = () => {
-    persistDraft(rows, false, '');
+  const resetSchedule = async () => {
+    await persistToSupabase(rows, false, '');
     setSent(false);
     setSentDate('');
   };
@@ -202,6 +232,15 @@ export default function ScheduleTab({
 
   return (
     <div style={{ padding: '14px', direction: 'rtl' }}>
+
+      {/* مؤشر التحميل */}
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '30px', color: 'var(--txt3)', fontSize: 13 }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+          جاري تحميل الجدول...
+        </div>
+      )}
+      {!loading && (<>
 
       {/* ══ شريط الفصول ══ */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -440,6 +479,7 @@ export default function ScheduleTab({
 )}
 
       {toast && <div className="toast" style={{ fontSize: 12 }}>{toast}</div>}
+      </>)}
     </div>
   );
 }
