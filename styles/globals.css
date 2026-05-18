@@ -627,8 +627,37 @@ color: #1D6B4A;
   .mbg { padding: 8px; padding-top: 12px; }
   .mbox { max-width: 100%; border-radius: 12px; padding: 16px; }
 
-  /* Login card */
-  .lcard { min-height: auto; max-height: 100dvh; padding: 16px; border-radius: 12px; }
+  /* Login card — على موبايل يبقى واسع وشبيه اللابتوب */
+  .lcard {
+    min-height: auto;
+    max-height: 100dvh;
+    padding: 28px 20px;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* login-wrap بدون padding زايد */
+  .login-wrap { padding: 10px; }
+
+  /* اسم التطبيق أكبر */
+  .lcard > div:first-child > div { font-size: 36px !important; }
+  .lcard > div:first-child > p   { font-size: 14px !important; }
+  .lcard > div:first-child img   { width: 120px !important; height: 120px !important; }
+
+  /* أزرار الأدوار أكبر على موبايل */
+  .roles { gap: 12px; margin-bottom: 20px; }
+  .role-b { padding: 16px 8px; font-size: 14px; gap: 10px; border-radius: 12px; }
+  .role-b img { width: 64px; height: 64px; padding: 12px; }
+
+  /* labels أكبر */
+  .fld label { font-size: 14px !important; }
+
+  /* حقول الإدخال أكبر */
+  .sinp { font-size: 15px !important; padding: 13px 14px 13px 40px !important; height: auto !important; }
+
+  /* زر الدخول أكبر */
+  .btn.btn-solid { font-size: 16px !important; padding: 14px !important; }
 
   /* Filter row wraps */
   .fgap { flex-direction: column; align-items: stretch; }
