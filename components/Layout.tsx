@@ -24,7 +24,20 @@ export default function Layout({ children, tab, setTab, user, notifSlot, subNav 
     document.documentElement.lang = 'ar';
     const fn = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setDrop(false); };
     document.addEventListener('mousedown', fn);
-    return () => document.removeEventListener('mousedown', fn);
+
+    // ✅ إصلاح مشكل زر الرجوع: يمنع المتصفح من الخروج للصفحة السابقة (Login)
+    // نحط state وهمي في التاريخ باش زر الرجوع يرجع للتاب مش للـ Login
+    window.history.pushState({ page: 'app' }, '', window.location.href);
+    const handlePop = (e: PopStateEvent) => {
+      // كل ضغطة رجوع نضيف state جديد بدل ما نخرج
+      window.history.pushState({ page: 'app' }, '', window.location.href);
+    };
+    window.addEventListener('popstate', handlePop);
+
+    return () => {
+      document.removeEventListener('mousedown', fn);
+      window.removeEventListener('popstate', handlePop);
+    };
   }, []);
   const toggleDark = () => {
     const n = !dark; setDark(n);
@@ -75,10 +88,17 @@ export default function Layout({ children, tab, setTab, user, notifSlot, subNav 
             {/* وسط */}
             <div className="hdr-c"><h1>{L.title}</h1><p>{L.sub}</p></div>
             {/* يسار */}
-            <div className="hdr-l">
-              <img src="/logo.png" alt="ناظم"
-                onError={e => { (e.target as HTMLImageElement).src = '/logo2.png'; }} />
-            </div>
+          <div className="hdr-l">
+  <img src="/Logo.png" alt="ناظم"
+    onError={e => {
+      const img = e.target as HTMLImageElement;
+      const tried = img.dataset.tried || '0';
+      if (tried === '0') { img.dataset.tried = '1'; img.src = '/logo.png'; }
+      else if (tried === '1') { img.dataset.tried = '2'; img.src = '/logo2.png'; }
+      else { img.style.display = 'none'; }
+    }}
+  />
+</div>
           </div>
         </header>
         {tabs.length > 0 && (
