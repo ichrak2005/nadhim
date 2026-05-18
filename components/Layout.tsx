@@ -9,8 +9,9 @@ interface LayoutProps {
   setTab: (t: string) => void;
   user: AppUser;
   notifSlot?: React.ReactNode;
-  subNav?: React.ReactNode; 
+  subNav?: React.ReactNode;
 }
+
 export default function Layout({ children, tab, setTab, user, notifSlot, subNav }: LayoutProps) {
   const router = useRouter();
   const [drop, setDrop] = useState(false);
@@ -19,99 +20,124 @@ export default function Layout({ children, tab, setTab, user, notifSlot, subNav 
 
   useEffect(() => {
     const t = localStorage.getItem('theme') || '';
-    if (t === 'dark') { setDark(true); document.documentElement.setAttribute('data-theme','dark'); }
+    if (t === 'dark') { setDark(true); document.documentElement.setAttribute('data-theme', 'dark'); }
     document.documentElement.dir = 'rtl';
     document.documentElement.lang = 'ar';
-    const fn = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setDrop(false); };
+
+    const fn = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setDrop(false);
+    };
     document.addEventListener('mousedown', fn);
 
-    // ✅ إصلاح مشكل زر الرجوع: يمنع المتصفح من الخروج للصفحة السابقة (Login)
-    // نحط state وهمي في التاريخ باش زر الرجوع يرجع للتاب مش للـ Login
-    window.history.pushState({ page: 'app' }, '', window.location.href);
-    const handlePop = (e: PopStateEvent) => {
-      // كل ضغطة رجوع نضيف state جديد بدل ما نخرج
-      window.history.pushState({ page: 'app' }, '', window.location.href);
-    };
-    window.addEventListener('popstate', handlePop);
+    // ✅ FIX: بدل pushState hack اللي يتعارض مع Next.js router،
+    // نحط state وهمي واحد فقط. المشكل الحقيقي يتحل في صفحة login
+    // (redirect إذا المستخدم بقى logged in)
+    window.history.replaceState({ page: 'app' }, '');
 
     return () => {
       document.removeEventListener('mousedown', fn);
-      window.removeEventListener('popstate', handlePop);
     };
   }, []);
+
   const toggleDark = () => {
     const n = !dark; setDark(n);
     document.documentElement.setAttribute('data-theme', n ? 'dark' : '');
     localStorage.setItem('theme', n ? 'dark' : '');
     setDrop(false);
   };
-  // Language toggle removed — app is Arabic only
+
   const logout = () => { localStorage.removeItem('user'); router.push('/'); };
-  const T = { ms:'المساجد', tc:'المؤطرون', st:'الطلبة', sc:'الجداول',
-               dk:'الوضع المظلم', lt:'الوضع الفاتح', lo:'تسجيل الخروج',
-               admin:'المسؤول العام', teacher:'المؤطر', guardian:'ولي الامر',
-               title:'ناظم إدارة مساجد الولاية',
-               sub:'إدارة شاملة للمؤطرين والطلبة والجداول الزمنية' };
-  const L = T;
+
+  const T = {
+    ms: 'المساجد', tc: 'المؤطرون', st: 'الطلبة', sc: 'الجداول',
+    dk: 'الوضع المظلم', lt: 'الوضع الفاتح', lo: 'تسجيل الخروج',
+    admin: 'المسؤول العام', teacher: 'المؤطر', guardian: 'ولي الامر',
+    title: 'ناظم إدارة مساجد الولاية',
+    sub: 'إدارة شاملة للمؤطرين والطلبة والجداول الزمنية',
+  };
+
   const TABS: Record<string, [string, string][]> = {
-    admin:    [['ms',L.ms],['tc',L.tc],['st',L.st],['sc',L.sc],['rp','التقارير']],
-    teacher:  [],
+    admin: [['ms', T.ms], ['tc', T.tc], ['st', T.st], ['sc', T.sc], ['rp', 'التقارير']],
+    teacher: [],
     guardian: [],
   };
+
   const tabs = TABS[user?.role] ?? TABS.admin;
-  const displayName = user?.name || L[user?.role] || L.admin;
+  const displayName = user?.name || T[user?.role] || T.admin;
 
   return (
     <>
       <div className="page-bg" />
       <div className="page-wrap">
+
+        {/* ─── HEADER ─── */}
         <header className="hdr">
           <div className="hdr-in">
-            {/* يمين */}
+
+            {/* يمين: إعدادات + اسم */}
             <div className="hdr-r" ref={ref}>
-              {notifSlot && <div style={{marginLeft:4}}>{notifSlot}</div>}
+              {notifSlot && <div style={{ marginLeft: 4 }}>{notifSlot}</div>}
               <button className="gear" onClick={() => setDrop(v => !v)} aria-label="إعدادات">⚙️</button>
               <span className="rtag">{displayName}</span>
               {drop && (
                 <div className="drop">
                   <div className="drop-hd">{user?.name}</div>
                   <button className="drop-it" onClick={toggleDark}>
-                    <span>{dark ? '☀️' : '🌙'}</span>{dark ? L.lt : L.dk}
+                    <span>{dark ? '☀️' : '🌙'}</span>{dark ? T.lt : T.dk}
                   </button>
                   <div className="drop-sep" />
                   <button className="drop-it red" onClick={logout}>
-                    <span>🚪</span>{L.lo}
+                    <span>🚪</span>{T.lo}
                   </button>
                 </div>
               )}
             </div>
-            {/* وسط */}
-            <div className="hdr-c"><h1>{L.title}</h1><p>{L.sub}</p></div>
-            {/* يسار */}
-<div className="hdr-l">
-  <img src="/Logo.png" alt="ناظم"
-    onError={e => {
-      (e.target as HTMLImageElement).style.display = 'none';
-    }}
-  />
-</div>
+
+            {/* وسط: عنوان */}
+            <div className="hdr-c">
+              <h1>{T.title}</h1>
+              <p>{T.sub}</p>
+            </div>
+
+            {/* يسار: لوغو
+                ✅ FIX: حذفنا margin-top و position:relative و z-index من هنا
+                CSS يتكفل بالتحكم في الحجم عبر .hdr-l img
+                ✅ FIX: أضفنا width/height attributes صريحة لمنع layout shift */}
+            <div className="hdr-l">
+              <img
+                src="/Logo.png"
+                alt="ناظم"
+                width={64}
+                height={64}
+                onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }}
+              />
+            </div>
+
           </div>
         </header>
+
+        {/* ─── TABS NAV ─── */}
         {tabs.length > 0 && (
           <div className="nav">
             <div className="nav-in">
               {tabs.map(([key, label]) => (
-                <button key={key} className={`nb ${tab===key?'on':''}`} onClick={() => setTab(key)}>
+                <button key={key} className={`nb ${tab === key ? 'on' : ''}`} onClick={() => setTab(key)}>
                   {label}
                 </button>
               ))}
             </div>
           </div>
         )}
+
         {subNav && subNav}
-        <main className="page-wrap">
-          <div style={{ paddingLeft:40, paddingRight:40, paddingTop:24 }}>{children}</div>
+
+        {/* ─── MAIN CONTENT ───
+            ✅ FIX: أزلنا className="page-wrap" من main (كان يخرب positioning)
+            ✅ FIX: استخدمنا className="main-content" بدل inline padding ثابت */}
+        <main className="main-content">
+          {children}
         </main>
+
       </div>
     </>
   );

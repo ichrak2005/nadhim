@@ -23,19 +23,12 @@ const SEMESTERS = [
   { id: 3, label: 'الفصل الثالث', range: 'سبتمبر – ديسمبر'  },
 ] as const;
 
-const DAYS_AR   = ['الاحد','الاثنين','الثلاثاء','الاربعاء','الخميس','الجمعة','السبت'];
-// ترتيب العرض في الجدول (من اليمين)
+const DAYS_AR    = ['الاحد','الاثنين','الثلاثاء','الاربعاء','الخميس','الجمعة','السبت'];
 const DAYS_ORDER = ['السبت','الجمعة','الخميس','الاربعاء','الثلاثاء','الاثنين','الاحد'];
-
-// مفتاح التخزين — مرتبط بالمؤطر + الفصل حتى لا تتضارب البيانات
-function schedKey(teacherId: number, sem: number) {
-  return `sentSchedules_t${teacherId}_s${sem}`;
-}
 
 function useToast() {
   const [t, sT] = useState('');
   const show = useCallback((m: string) => { sT(m); setTimeout(() => sT(''), 2500); }, []);
-
   return { toast: t, show };
 }
 
@@ -43,7 +36,7 @@ function useToast() {
 function SessionPill({ row, onRemove }: { row: ScheduleRow; onRemove?: () => void }) {
   return (
     <div style={{
-      background:'var(--g)',
+      background: 'var(--g)',
       color: '#fff',
       borderRadius: 6,
       padding: '4px 8px',
@@ -88,9 +81,9 @@ export default function ScheduleTab({
   const [sent, setSent]         = useState(false);
   const [sentDate, setSentDate] = useState('');
   const [loading, setLoading]   = useState(false);
-  const [dbId, setDbId]         = useState<number | null>(null); // id السجل في Supabase
+  const [loadErr, setLoadErr]   = useState('');  // ✅ FIX: نبين خطأ بدل دوران للأبد
+  const [dbId, setDbId]         = useState<number | null>(null);
 
-  // حقول إضافة حصة
   const [newDay,   setNewDay]   = useState('الاحد');
   const [newStart, setNewStart] = useState('08:00');
   const [newEnd,   setNewEnd]   = useState('10:00');
@@ -102,26 +95,44 @@ export default function ScheduleTab({
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('sent_schedules')
-        .select('*')
-        .eq('teacher_id', teacher.id)
-        .eq('sem', sem)
-        .maybeSingle();
+      setLoadErr('');
 
-      if (!error && data) {
-        setRows(data.rows ?? []);
-        setSent(data.sent ?? false);
-        setSentDate(data.sent_date ?? '');
-        setDbId(data.id);
-      } else {
+      // ✅ FIX: try-catch-finally يضمن setLoading(false) حتى لو Supabase throw exception
+      try {
+        const { data, error } = await supabase
+          .from('sent_schedules')
+          .select('*')
+          .eq('teacher_id', teacher.id)
+          .eq('sem', sem)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data) {
+          setRows(data.rows ?? []);
+          setSent(data.sent ?? false);
+          setSentDate(data.sent_date ?? '');
+          setDbId(data.id);
+        } else {
+          setRows([]);
+          setSent(false);
+          setSentDate('');
+          setDbId(null);
+        }
+      } catch (err: any) {
+        console.error('ScheduleTab load error:', err);
+        setLoadErr('تعذّر تحميل الجدول. تحقق من الاتصال وأعد المحاولة.');
+        // نفضي البيانات بدل ما نترك القديم
         setRows([]);
         setSent(false);
         setSentDate('');
         setDbId(null);
+      } finally {
+        // ✅ هذا يشتغل دائماً حتى لو كانت exception
+        setLoading(false);
       }
-      setLoading(false);
     };
+
     load();
   }, [teacher.id, sem]);
 
@@ -140,13 +151,16 @@ export default function ScheduleTab({
       sent_date: date,
     };
 
-    if (dbId) {
-      // تحديث السجل الموجود
-      await supabase.from('sent_schedules').update(payload).eq('id', dbId);
-    } else {
-      // إنشاء سجل جديد
-      const { data } = await supabase.from('sent_schedules').insert(payload).select().single();
-      if (data) setDbId(data.id);
+    try {
+      if (dbId) {
+        await supabase.from('sent_schedules').update(payload).eq('id', dbId);
+      } else {
+        const { data } = await supabase.from('sent_schedules').insert(payload).select().single();
+        if (data) setDbId(data.id);
+      }
+    } catch (err) {
+      console.error('persistToSupabase error:', err);
+      show('⚠️ فشل الحفظ. تحقق من الاتصال');
     }
   }, [teacher.id, teacher.mosqueId, sem, dbId]);
 
@@ -183,12 +197,11 @@ export default function ScheduleTab({
     if (rows.length === 0) { show('⚠️ أضف حصة واحدة على الأقل'); return; }
     const date = new Date().toLocaleString('ar-DZ', { numberingSystem: 'latn' });
 
-    // ✅ حفظ في Supabase — يظهر على كل الأجهزة
     await persistToSupabase(rows, true, date);
     setSent(true);
     setSentDate(date);
 
-    // ── إشعار الأدمن في Supabase ──
+    // إشعار الأدمن
     await supabase.from('notifications').insert({
       teacher_id: teacher.id,
       mosque_id: teacher.mosqueId,
@@ -199,7 +212,7 @@ export default function ScheduleTab({
       target: 'admin',
     });
 
-    // ── إشعار أولياء الأمور في Supabase ──
+    // إشعار أولياء الأمور
     await supabase.from('notifications').insert({
       teacher_id: teacher.id,
       msg: `📅 المؤطر ${teacher.name} أرسل جدول الحصص الجديد`,
@@ -209,10 +222,12 @@ export default function ScheduleTab({
       target: 'guardian',
     });
 
-    // localStorage كـ fallback محلي فقط (للتوافق مع الكود القديم)
+    // localStorage fallback
     const an = gst<Notif[]>('adminNotifs', []);
-    an.unshift({ id: Date.now(), teacherId: teacher.id, mosqueId: teacher.mosqueId,
-      msg: `📅 جدول توقيت — ${teacher.name}`, time: date, read: false, type: 'schedule' });
+    an.unshift({
+      id: Date.now(), teacherId: teacher.id, mosqueId: teacher.mosqueId,
+      msg: `📅 جدول توقيت — ${teacher.name}`, time: date, read: false, type: 'schedule',
+    });
     sst('adminNotifs', an);
 
     show('✅ تم الإرسال للأدمن وأولياء الأمور');
@@ -240,246 +255,224 @@ export default function ScheduleTab({
           جاري تحميل الجدول...
         </div>
       )}
-      {!loading && (<>
 
-      {/* ══ شريط الفصول ══ */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-        {SEMESTERS.map(s => (
-          <button
-            key={s.id}
-            onClick={() => setSem(s.id as 1 | 2 | 3)}
-            style={{
-              padding: '7px 16px',
-              borderRadius: 20,
-              border: `1.5px solid ${sem === s.id ? 'var(--g)' : 'var(--brd)'}`,
-              background: sem === s.id ? 'var(--g)' : 'var(--card)',
-              color: sem === s.id ? '#fff' : 'var(--txt2)',
-              cursor: 'pointer',
-              fontFamily: 'Cairo,sans-serif',
-              fontSize: 12,
-              fontWeight: 700,
-              transition: 'all 0.2s',
-              textAlign: 'center',
-            }}
-          >
-            <div>{s.label}</div>
-            <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 400 }}>{s.range}</div>
-          </button>
-        ))}
-      </div>
-
-      {/* ══ إشعار الإرسال ══ */}
-      {sent && (
+      {/* ✅ FIX: رسالة خطأ بدل دوران للأبد */}
+      {!loading && loadErr && (
         <div style={{
-          background: '#f0fdf4',
-          border: '2px solid #86efac',
-          borderRadius: 10,
-          padding: '12px 16px',
-          marginBottom: 14,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
+          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 10,
+          padding: '14px 16px', color: '#dc2626', fontSize: 13, marginBottom: 14,
+          display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          <span style={{ fontSize: 20 }}>✅</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, color: '#2d8a48', fontSize: 13 }}>
-              تم إرسال الجدول للأدمن وأولياء الأمور
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 2 }}>{sentDate}</div>
-          </div>
+          <span style={{ fontSize: 20 }}>⚠️</span>
+          <div style={{ flex: 1 }}>{loadErr}</div>
           <button
-            onClick={resetSchedule}
+            onClick={() => { setLoadErr(''); setSem(sem); }} // إعادة تشغيل useEffect
             style={{
-              padding: '6px 14px',
-              borderRadius: 8,
-              border: '1px solid var(--brd)',
-              background: 'var(--gp)',
-              cursor: 'pointer',
-              fontSize: 12,
+              padding: '6px 12px', borderRadius: 8, border: '1px solid #fca5a5',
+              background: 'white', cursor: 'pointer', fontSize: 12, color: '#dc2626',
               fontFamily: 'Cairo,sans-serif',
-              color: 'var(--txt)',
             }}
-          >تعديل</button>
+          >إعادة المحاولة</button>
         </div>
       )}
 
-      {/* ══ نموذج إضافة حصة ══ */}
-     
-        <div style={{
-          background: 'var(--card)',
-          border: '1.5px solid var(--brd)',
-          borderRadius: 12,
-          padding: '14px',
-          marginBottom: 14,
-          boxShadow: 'var(--sh)',
-        }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--g)', marginBottom: 10 }}>
-            ➕ إضافة حصة جديدة
+      {!loading && !loadErr && (
+        <>
+          {/* ══ شريط الفصول ══ */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+            {SEMESTERS.map(s => (
+              <button
+                key={s.id}
+                onClick={() => setSem(s.id as 1 | 2 | 3)}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 20,
+                  border: `1.5px solid ${sem === s.id ? 'var(--g)' : 'var(--brd)'}`,
+                  background: sem === s.id ? 'var(--g)' : 'var(--card)',
+                  color: sem === s.id ? '#fff' : 'var(--txt2)',
+                  cursor: 'pointer',
+                  fontFamily: 'Cairo,sans-serif',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  transition: 'all 0.2s',
+                  textAlign: 'center',
+                }}
+              >
+                <div>{s.label}</div>
+                <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 400 }}>{s.range}</div>
+              </button>
+            ))}
           </div>
 
-          {/* اليوم */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontSize: 12, color: 'var(--txt3)', display: 'block', marginBottom: 4 }}>اليوم</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {DAYS_AR.map(d => (
-                <button
-                  key={d}
-                  onClick={() => setNewDay(d)}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: 16,
-                    border: `1.5px solid ${newDay === d ? 'var(--g)' : 'var(--brd)'}`,
-                    background: newDay === d ? 'var(--g)' : 'transparent',
-                    color: newDay === d ? '#fff' : 'var(--txt2)',
-                    cursor: 'pointer',
-                    fontFamily: 'Cairo,sans-serif',
-                    fontSize: 12,
-                    fontWeight: newDay === d ? 700 : 400,
-                    transition: 'all 0.15s',
-                  }}
-                >{d}</button>
-              ))}
+          {/* ══ إشعار الإرسال ══ */}
+          {sent && (
+            <div style={{
+              background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 10,
+              padding: '12px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <span style={{ fontSize: 20 }}>✅</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, color: '#2d8a48', fontSize: 13 }}>
+                  تم إرسال الجدول للأدمن وأولياء الأمور
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--txt3)', marginTop: 2 }}>{sentDate}</div>
+              </div>
+              <button
+                onClick={resetSchedule}
+                style={{
+                  padding: '6px 14px', borderRadius: 8, border: '1px solid var(--brd)',
+                  background: 'var(--gp)', cursor: 'pointer', fontSize: 12,
+                  fontFamily: 'Cairo,sans-serif', color: 'var(--txt)',
+                }}
+              >تعديل</button>
             </div>
-          </div>
-
-          {/* الوقت */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 110 }}>
-              <label style={{ fontSize: 12, color: 'var(--txt3)', display: 'block', marginBottom: 4 }}>من</label>
-              <input
-                type="time"
-                value={newStart}
-                onChange={e => setNewStart(e.target.value)}
-                className="sinp"
-                style={{ width: '100%', fontFamily: 'Cairo,sans-serif' }}
-              />
-            </div>
-            <div style={{ paddingTop: 22, color: 'var(--txt3)', fontSize: 16 }}>—</div>
-            <div style={{ flex: 1, minWidth: 110 }}>
-              <label style={{ fontSize: 12, color: 'var(--txt3)', display: 'block', marginBottom: 4 }}>إلى</label>
-              <input
-                type="time"
-                value={newEnd}
-                onChange={e => setNewEnd(e.target.value)}
-                className="sinp"
-                style={{ width: '100%', fontFamily: 'Cairo,sans-serif' }}
-              />
-            </div>
-          </div>
-
-          {addErr && (
-            <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 8 }}>{addErr}</div>
           )}
 
-          <div style={{ display: 'flex', gap: 8 }}>
-<button onClick={addRow} className="btn btn-gold" style={{ flex: 2 }}>              ➕ إضافة الحصة
-            </button>
-            {rows.length > 0 && (
-              <button onClick={saveDraft} className="btn btn-gold" style={{ flex: 1 }}>
-                💾 حفظ مسودة
+          {/* ══ نموذج إضافة حصة ══ */}
+          <div style={{
+            background: 'var(--card)', border: '1.5px solid var(--brd)', borderRadius: 12,
+            padding: '14px', marginBottom: 14, boxShadow: 'var(--sh)',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--g)', marginBottom: 10 }}>
+              ➕ إضافة حصة جديدة
+            </div>
+
+            {/* اليوم */}
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 12, color: 'var(--txt3)', display: 'block', marginBottom: 4 }}>اليوم</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {DAYS_AR.map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setNewDay(d)}
+                    style={{
+                      padding: '5px 12px', borderRadius: 16,
+                      border: `1.5px solid ${newDay === d ? 'var(--g)' : 'var(--brd)'}`,
+                      background: newDay === d ? 'var(--g)' : 'transparent',
+                      color: newDay === d ? '#fff' : 'var(--txt2)',
+                      cursor: 'pointer', fontFamily: 'Cairo,sans-serif', fontSize: 12,
+                      fontWeight: newDay === d ? 700 : 400, transition: 'all 0.15s',
+                    }}
+                  >{d}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* الوقت */}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 110 }}>
+                <label style={{ fontSize: 12, color: 'var(--txt3)', display: 'block', marginBottom: 4 }}>من</label>
+                <input
+                  type="time" value={newStart}
+                  onChange={e => setNewStart(e.target.value)}
+                  className="sinp" style={{ width: '100%', fontFamily: 'Cairo,sans-serif' }}
+                />
+              </div>
+              <div style={{ paddingTop: 22, color: 'var(--txt3)', fontSize: 16 }}>—</div>
+              <div style={{ flex: 1, minWidth: 110 }}>
+                <label style={{ fontSize: 12, color: 'var(--txt3)', display: 'block', marginBottom: 4 }}>إلى</label>
+                <input
+                  type="time" value={newEnd}
+                  onChange={e => setNewEnd(e.target.value)}
+                  className="sinp" style={{ width: '100%', fontFamily: 'Cairo,sans-serif' }}
+                />
+              </div>
+            </div>
+
+            {addErr && (
+              <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 8 }}>{addErr}</div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={addRow} className="btn btn-gold" style={{ flex: 2 }}>
+                ➕ إضافة الحصة
               </button>
+              {rows.length > 0 && (
+                <button onClick={saveDraft} className="btn btn-gold" style={{ flex: 1 }}>
+                  💾 حفظ مسودة
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* ══ الجدول الأسبوعي ══ */}
+          <div style={{
+            background: 'var(--card)', border: '1.5px solid var(--brd)',
+            borderRadius: 12, overflow: 'hidden', boxShadow: 'var(--sh)',
+          }}>
+            <div style={{
+              background: 'var(--g)', padding: '10px 16px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>جدول التوقيت الأسبوعي</span>
+              {sent && (
+                <span style={{
+                  background: 'rgba(255,255,255,0.2)', color: '#fff',
+                  fontSize: 11, borderRadius: 10, padding: '2px 10px',
+                }}>تم الإرسال ✓</span>
+              )}
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{
+                width: '100%', borderCollapse: 'collapse', minWidth: 420, direction: 'rtl',
+              }}>
+                <thead>
+                  <tr>
+                    {DAYS_ORDER.map(d => (
+                      <th key={d} style={{
+                        border: '1px solid var(--brd)', padding: '10px 6px', fontSize: 12,
+                        fontWeight: 700, textAlign: 'center', background: 'var(--gp)', color: 'var(--txt)',
+                      }}>{d}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: maxRows }).map((_, rowIdx) => (
+                    <tr key={rowIdx}>
+                      {DAYS_ORDER.map(d => {
+                        const cell = byDay[d][rowIdx];
+                        return (
+                          <td key={d} style={{
+                            border: '1px solid var(--brd)', padding: '4px',
+                            verticalAlign: 'top', width: `${100 / 7}%`,
+                          }}>
+                            {cell && (
+                              <SessionPill
+                                row={cell}
+                                onRemove={!sent ? () => removeRow(cell.id) : undefined}
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {rows.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '30px', color: 'var(--txt3)', fontSize: 13 }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
+                لم تضف حصة بعد
+              </div>
             )}
           </div>
-        </div>
-     
-      {/* ══ الجدول الأسبوعي ══ */}
-      <div style={{
-        background: 'var(--card)',
-        border: '1.5px solid var(--brd)',
-        borderRadius: 12,
-        overflow: 'hidden',
-        boxShadow: 'var(--sh)',
-      }}>
-        <div style={{
-          background: 'var(--g)',
-          padding: '10px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>جدول التوقيت الأسبوعي</span>
-          {sent && (
-            <span style={{
-              background: 'rgba(255,255,255,0.2)',
-              color: '#fff',
-              fontSize: 11,
-              borderRadius: 10,
-              padding: '2px 10px',
-            }}>تم الإرسال ✓</span>
+
+          {!sent && rows.length > 0 && (
+            <button
+              onClick={sendToAll}
+              className="btn btn-gold"
+              style={{ width: '100%', marginTop: 12, fontSize: 14, padding: '12px' }}
+            >
+              📤 إرسال الجدول للأدمن وولي الأمر
+            </button>
           )}
-        </div>
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            minWidth: 420,
-            direction: 'rtl',
-          }}>
-            <thead>
-              <tr>
-                {DAYS_ORDER.map(d => (
-                  <th
-                    key={d}
-                    style={{
-                      border: '1px solid var(--brd)',
-                      padding: '10px 6px',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      textAlign: 'center',
-                      background: 'var(--gp)',
-                    color: 'var(--txt)',
-                    }}
-                  >{d}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: maxRows }).map((_, rowIdx) => (
-                <tr key={rowIdx}>
-                  {DAYS_ORDER.map(d => {
-                    const cell = byDay[d][rowIdx];
-                    return (
-                    <td key={d} style={{
-  border:'1px solid var(--brd)',
-  padding:'4px',
-  verticalAlign:'top',
-  width: `${100/7}%`,
-}}>
-                        {cell && (
-                          <SessionPill
-                            row={cell}
-                            onRemove={!sent ? () => removeRow(cell.id) : undefined}
-                          />
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {rows.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '30px', color: 'var(--txt3)', fontSize: 13 }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
-            لم تضف حصة بعد
-          </div>
-        )}
-      </div>
-{!sent && rows.length > 0 && (
-  <button
-    onClick={sendToAll}
-    className="btn btn-gold"
-    style={{ width: '100%', marginTop: 12, fontSize: 14, padding: '12px' }}
-  >
-    📤 إرسال الجدول للأدمن وولي الأمر
-  </button>
-)}
-
-      {toast && <div className="toast" style={{ fontSize: 12 }}>{toast}</div>}
-      </>)}
+          {toast && <div className="toast" style={{ fontSize: 12 }}>{toast}</div>}
+        </>
+      )}
     </div>
   );
 }

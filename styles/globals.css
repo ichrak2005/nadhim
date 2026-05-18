@@ -119,10 +119,10 @@ html, body {
   mix-blend-mode: screen;
   filter: invert(1) brightness(1.2);
 }
-/* For logo2 (has ناظم text on black bg) */
+/* For logo (transparent PNG — no blend mode needed) */
 .ico-logo {
-  mix-blend-mode: multiply;
   object-fit: contain;
+  /* ✅ FIX: حذفنا mix-blend-mode: multiply لأنه كان يخفي اللوغو على الخلفية الفاتحة */
 }
 [data-theme="dark"] .ico-logo {
   mix-blend-mode: screen;
@@ -140,6 +140,9 @@ html, body {
   top: 0;
   z-index: 100;
   padding: 0 clamp(10px,3vw,28px);
+  /* ✅ FIX اللوغو يرتعش: GPU layer يمنع repaint في كل scroll */
+  transform: translateZ(0);
+  will-change: transform;
 }
 .hdr-in {
   display: flex;
@@ -158,19 +161,16 @@ html, body {
 .hdr-c h1 { font-size: clamp(11px,1.8vw,15px); font-weight: 700; color: var(--g); line-height: 1.3; }
 .hdr-c p  { font-size: clamp(9px,1.2vw,11px); color: var(--txt2); }
 /* LEFT side = logo (RTL: rendered on left) */
-.hdr-l { flex-shrink: 0; }
+.hdr-l { flex-shrink: 0; display: flex; align-items: center; }
 .hdr-l img {
-  width: 64px;
-  height: 64px;
-  /* margin-top صغير بس مش كبير — كان 20px يخفي اللوغو */
-  margin-top: 6px;
+  width: 60px;
+  height: 60px;
   display: block;
-  /* z-index يضمن اللوغو يبان فوق كل شي */
-  position: relative;
-  z-index: 5;
+  object-fit: contain;
+  /* ✅ FIX: حذفنا position:relative و z-index و margin-top
+     كانوا يسببون ارتعاش ومشكل overflow على بعض المتصفحات */
 }
-/* الهيدر يسمح بتجاوز اللوغو */
-.hdr { overflow: visible !important; }
+/* الهيدر يسمح بتجاوز اللوغو - ليس ضرورياً بعد إصلاح اللوغو */
 [data-theme="dark"] .hdr-l img { mix-blend-mode: screen; filter: invert(1) hue-rotate(100deg) brightness(1.3); }
 
 /* Settings gear */
@@ -579,11 +579,16 @@ color: #1D6B4A;
    RESPONSIVE — Mobile & Tablet
 ══════════════════════════════════ */
 
+/* ✅ FIX: main-content بدل page-wrap على عنصر main
+   يحل مشكل Responsiveness لأن page-wrap كان يضيف z-index خاطئ */
+.main-content {
+  padding: clamp(14px,3vw,24px) clamp(12px,3.5vw,40px);
+}
+
 /* Tablet (≤ 900px) */
 @media (max-width: 900px) {
   .hdr-in { height: 60px; }
-  /* اللوغو أصغر شوية على تابلت */
-  .hdr-l img { width: 56px; height: 56px; margin-top: 4px; }
+  .hdr-l img { width: 50px; height: 50px; }
   .mcards { grid-template-columns: repeat(auto-fill, minmax(min(100%,220px),1fr)); }
   .stats  { gap: 8px; }
   .stat   { min-width: 130px; padding: 12px 14px; }
@@ -599,15 +604,15 @@ color: #1D6B4A;
   .hdr-in { height: 56px; gap: 4px; }
   .hdr-c h1 { font-size: 12px; }
   .hdr-c p  { display: none; }
-  .hdr-l img { width: 48px; height: 48px; margin-top: 4px; }
+  .hdr-l img { width: 42px; height: 42px; }
   .rtag { display: none; } /* hide role name on very small screens */
 
   /* Nav tabs — scrollable horizontal */
   .nav-in { justify-content: flex-start; gap: 2px; padding: 0 8px; }
   .nb { padding: 10px 12px; font-size: 13px; }
 
-  /* Main content padding */
-  .page-wrap > main > div { padding-left: 12px !important; padding-right: 12px !important; padding-top: 14px !important; }
+  /* Main content padding — يستهدف الكلاس الجديد */
+  .main-content { padding: 14px 12px; }
 
   /* Mosque cards — single column */
   .mcards { grid-template-columns: 1fr; gap: 10px; }
