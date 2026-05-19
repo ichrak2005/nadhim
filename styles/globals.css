@@ -161,17 +161,19 @@ html, body {
 .hdr-c h1 { font-size: clamp(11px,1.8vw,15px); font-weight: 700; color: var(--g); line-height: 1.3; }
 .hdr-c p  { font-size: clamp(9px,1.2vw,11px); color: var(--txt2); }
 /* LEFT side = logo (RTL: rendered on left) */
-.hdr-l { flex-shrink: 0; display: flex; align-items: center; }
+.hdr-l { flex-shrink: 0; display: flex; align-items: center; overflow: visible; }
 .hdr-l img {
-  width: 60px;
-  height: 60px;
+  width: 56px;
+  height: 56px;
   display: block;
   object-fit: contain;
-  /* ✅ FIX: حذفنا position:relative و z-index و margin-top
-     كانوا يسببون ارتعاش ومشكل overflow على بعض المتصفحات */
+  /* ✅ FIX: visibility دائماً visible حتى لو onError شغّل */
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 /* الهيدر يسمح بتجاوز اللوغو - ليس ضرورياً بعد إصلاح اللوغو */
-[data-theme="dark"] .hdr-l img { mix-blend-mode: screen; filter: invert(1) hue-rotate(100deg) brightness(1.3); }
+/* ✅ FIX اللوغو: بدل mix-blend-mode اللي يخفيه، نستخدم filter فقط */
+[data-theme="dark"] .hdr-l img { filter: brightness(0) invert(1) sepia(1) hue-rotate(90deg) saturate(2) brightness(1.4); }
 
 /* Settings gear */
 .gear {

@@ -29,13 +29,22 @@ export default function Layout({ children, tab, setTab, user, notifSlot, subNav 
     };
     document.addEventListener('mousedown', fn);
 
-    // ✅ FIX: بدل pushState hack اللي يتعارض مع Next.js router،
-    // نحط state وهمي واحد فقط. المشكل الحقيقي يتحل في صفحة login
-    // (redirect إذا المستخدم بقى logged in)
+    // ✅ FIX زر الرجوع: نمنع التنقل للوراء بدل ما يسجل خروج
+    // نحط state حالي ونضيف entry إضافي حتى زر الرجوع ما يخرج من التطبيق
     window.history.replaceState({ page: 'app' }, '');
+    window.history.pushState({ page: 'app' }, '');
+
+    const handlePopState = (e: PopStateEvent) => {
+      // كل مرة المستخدم يضغط رجوع، نرجع للأمام بدل الخروج
+      if (e.state?.page === 'app' || !e.state) {
+        window.history.pushState({ page: 'app' }, '');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
 
     return () => {
       document.removeEventListener('mousedown', fn);
+      window.removeEventListener('popstate', handlePopState);
     };
   }, []);
 
@@ -107,9 +116,17 @@ export default function Layout({ children, tab, setTab, user, notifSlot, subNav 
               <img
                 src="/Logo.png"
                 alt="ناظم"
-                width={64}
-                height={64}
-                onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }}
+                width={56}
+                height={56}
+                onError={e => {
+                  // ✅ FIX: بدل ما نخبي اللوغو، نبدله بنص بديل
+                  const el = e.target as HTMLImageElement;
+                  el.style.display = 'none';
+                  const span = document.createElement('span');
+                  span.textContent = 'ناظم';
+                  span.style.cssText = 'font-family:Amiri,serif;font-size:18px;font-weight:700;color:var(--g)';
+                  el.parentNode?.appendChild(span);
+                }}
               />
             </div>
 
