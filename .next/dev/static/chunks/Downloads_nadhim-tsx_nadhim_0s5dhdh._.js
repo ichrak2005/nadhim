@@ -239,7 +239,7 @@ function Layout({ children, tab, setTab, user, notifSlot, subNav }) {
                                         src: "/logo.png",
                                         alt: "ناظم",
                                         onError: (e)=>{
-                                            e.target.src = '/logo2.png';
+                                            e.target.src = '/Logo.png';
                                         }
                                     }, void 0, false, {
                                         fileName: "[project]/Downloads/nadhim-tsx/nadhim/components/Layout.tsx",
