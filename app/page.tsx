@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AppUser } from '../types';
 import { supabase } from '../lib/supabase';
+export const dynamic = 'force-dynamic';
 
 const ROLES = [
   { key: 'admin'    as const, label: 'المسؤول',   img: '/Admin.png'   },
