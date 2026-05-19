@@ -167,9 +167,9 @@ html, body {
   height: 56px;
   display: block;
   object-fit: contain;
-  /* ✅ FIX: visibility دائماً visible حتى لو onError شغّل */
   visibility: visible !important;
   opacity: 1 !important;
+  mix-blend-mode: multiply;
 }
 /* الهيدر يسمح بتجاوز اللوغو - ليس ضرورياً بعد إصلاح اللوغو */
 /* ✅ FIX اللوغو: بدل mix-blend-mode اللي يخفيه، نستخدم filter فقط */
